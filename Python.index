@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Site Traffic Analyzer</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Dependencies: Prop-types (often needed for Recharts UMD) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prop-types/15.8.1/prop-types.min.js"></script>
+    
+    <!-- React & ReactDOM (Pinned Stable Versions) -->
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    
+    <!-- Recharts (Pinned Stable Version) -->
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.12.7/Recharts.min.js"></script>
+    
+    <!-- Babel -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    </style>
+</head>
+<body class="bg-gray-50">
+
+    <div id="root"></div>
+
+    <script type="text/babel">
+        
+        // Debug and Load Check
+        const checkLibs = () => {
+            const missing = [];
+            if (!window.React) missing.push("React");
+            if (!window.ReactDOM) missing.push("ReactDOM");
+            if (!window.Recharts) missing.push("Recharts");
+            return missing;
+        };
+
+        const missingLibs = checkLibs();
+
+        if (missingLibs.length > 0) {
+             document.getElementById('root').innerHTML = `
+                <div class="flex items-center justify-center min-h-screen">
+                    <div class="bg-red-50 p-6 rounded-lg border border-red-200 text-red-700 max-w-md text-center shadow-lg">
+                        <h2 class="font-bold text-lg mb-2">Library Loading Error</h2>
+                        <p class="text-sm mb-4">The following libraries failed to load from the CDN:</p>
+                        <code class="bg-red-100 px-2 py-1 rounded text-red-800 font-mono text-sm block mb-4">
+                            ${missingLibs.join(', ')}
+                        </code>
+                        <p class="text-xs text-gray-600">
+                            This usually happens due to network restrictions or ad blockers blocking "cdnjs.cloudflare.com".
+                            Please try opening this file on a different network or check your browser extensions.
+                        </p>
+                    </div>
+                </div>
+            `;
+            throw new Error("Required libraries are missing: " + missingLibs.join(', '));
+        }
+
+        const { useState, useMemo } = React;
+        const { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } = Recharts;
+
+        // --- Icon Components (Inline SVGs) ---
+        const IconBase = ({ children, className = "", ...props }) => (
+            <svg 
+                xmlns="http://www.w3.org/2000/svg" 
+                width="24" height="24" viewBox="0 0 24 24" 
+                fill="none" stroke="currentColor" strokeWidth="2" 
+                strokeLinecap="round" strokeLinejoin="round"
+                className={className} 
+                {...props}
+            >
+                {children}
+            </svg>
+        );
+
+        const Upload = (props) => (
+            <IconBase {...props}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></IconBase>
+        );
+        const FileText = (props) => (
+            <IconBase {...props}><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></IconBase>
+        );
+        const AlertCircle = (props) => (
+            <IconBase {...props}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></IconBase>
+        );
+        const CheckCircle = (props) => (
+            <IconBase {...props}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></IconBase>
+        );
+        const BarChart3 = (props) => (
+            <IconBase {...props}><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></IconBase>
+        );
+        const Users = (props) => (
+            <IconBase {...props}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></IconBase>
+        );
+        const Calendar = (props) => (
+            <IconBase {...props}><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></IconBase>
+        );
+
+        // --- Main Components ---
+
+        const Card = ({ children, className = "" }) => (
+            <div className={`bg-white rounded-xl shadow-sm border border-gray-200 ${className}`}>
+                {children}
+            </div>
+        );
+
+        const StatCard = ({ label, value, icon: Icon, color }) => (
+            <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm flex items-center space-x-4">
+                <div className={`p-3 rounded-full ${color}`}>
+                    <Icon className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                    <p className="text-sm text-gray-500 font-medium">{label}</p>
+                    <p className="text-2xl font-bold text-gray-800">{value}</p>
+                </div>
+            </div>
+        );
+
+        function PeakTimesApp() {
+            const [loading, setLoading] = useState(false);
+            const [error, setError] = useState(null);
+            const [stats, setStats] = useState(null);
+            const [chartData, setChartData] = useState([]);
+            const [fileName, setFileName] = useState('');
+
+            const processFile = (file) => {
+                setLoading(true);
+                setError(null);
+                setFileName(file.name);
+                setStats(null);
+                setChartData([]);
+
+                const reader = new FileReader();
+                
+                reader.onload = (event) => {
+                    try {
+                        const text = event.target.result;
+                        const rows = text.split('\n').map(row => row.trim()).filter(row => row.length > 0);
+                        
+                        if (rows.length < 2) throw new Error("File appears to be empty or invalid.");
+
+                        // Header Detection
+                        const headers = rows[0].split(',').map(h => h.toLowerCase().trim());
+                        
+                        // Find Column Indexes (Heuristic based on common names)
+                        const idIndex = headers.findIndex(h => h.includes('id') || h.includes('person') || h.includes('user'));
+                        const timeIndex = headers.findIndex(h => h.includes('date') || h.includes('time') || h.includes('timestamp'));
+
+                        if (idIndex === -1 || timeIndex === -1) {
+                            throw new Error(`Could not automatically detect columns. Found headers: ${headers.join(', ')}`);
+                        }
+
+                        const rawData = [];
+                        const uniqueEntries = new Set();
+                        
+                        // Parse and Deduplicate
+                        for (let i = 1; i < rows.length; i++) {
+                            const cols = rows[i].split(','); 
+                            
+                            if (cols.length <= Math.max(idIndex, timeIndex)) continue;
+
+                            const id = cols[idIndex].trim();
+                            let timeStr = cols[timeIndex].trim();
+
+                            // Basic cleaning of time string (remove quotes)
+                            timeStr = timeStr.replace(/['"]+/g, '');
+
+                            if (!id || !timeStr) continue;
+
+                            // Attempt to parse date
+                            const dateObj = new Date(timeStr);
+                            if (isNaN(dateObj.getTime())) continue;
+
+                            const uniqueKey = `${id}|${dateObj.toISOString()}`;
+                            
+                            if (!uniqueEntries.has(uniqueKey)) {
+                                uniqueEntries.add(uniqueKey);
+                                rawData.push({
+                                    id,
+                                    dateObj,
+                                    dateStr: dateObj.toISOString().split('T')[0], // YYYY-MM-DD
+                                    hour: dateObj.getHours()
+                                });
+                            }
+                        }
+
+                        if (rawData.length === 0) throw new Error("No valid data rows found after parsing.");
+
+                        // Group by Person + Date to find Min (Arrival) and Max (Departure)
+                        const dailyActivity = {}; 
+                        // Format: { "ID|DATE": { min: Date, max: Date } }
+
+                        const uniqueDaysSet = new Set();
+                        const uniquePeopleSet = new Set();
+
+                        rawData.forEach(row => {
+                            const key = `${row.id}|${row.dateStr}`;
+                            uniqueDaysSet.add(row.dateStr);
+                            uniquePeopleSet.add(row.id);
+
+                            if (!dailyActivity[key]) {
+                                dailyActivity[key] = { min: row.dateObj, max: row.dateObj };
+                            } else {
+                                if (row.dateObj < dailyActivity[key].min) dailyActivity[key].min = row.dateObj;
+                                if (row.dateObj > dailyActivity[key].max) dailyActivity[key].max = row.dateObj;
+                            }
+                        });
+
+                        // Count Arrivals and Departures per Hour
+                        const arrivalCounts = new Array(24).fill(0);
+                        const departureCounts = new Array(24).fill(0);
+
+                        Object.values(dailyActivity).forEach(activity => {
+                            const arrivalHour = activity.min.getHours();
+                            const departureHour = activity.max.getHours();
+                            
+                            arrivalCounts[arrivalHour]++;
+                            departureCounts[departureHour]++;
+                        });
+
+                        // Calculate Averages
+                        const totalDays = uniqueDaysSet.size;
+                        const processedChartData = arrivalCounts.map((count, hour) => ({
+                            hour: `${hour.toString().padStart(2, '0')}:00`,
+                            avgArrivals: Number((count / totalDays).toFixed(1)),
+                            avgDepartures: Number((departureCounts[hour] / totalDays).toFixed(1)),
+                        }));
+
+                        setStats({
+                            uniquePeople: uniquePeopleSet.size,
+                            uniqueDays: totalDays,
+                            totalRecords: rawData.length
+                        });
+                        setChartData(processedChartData);
+
+                    } catch (err) {
+                        console.error(err);
+                        setError(err.message || "An error occurred while processing the file.");
+                    } finally {
+                        setLoading(false);
+                    }
+                };
+
+                reader.onerror = () => {
+                    setError("Failed to read the file.");
+                    setLoading(false);
+                };
+
+                reader.readAsText(file);
+            };
+
+            return (
+                <div className="min-h-screen bg-gray-50 p-6 font-sans">
+                    <div className="max-w-6xl mx-auto space-y-6">
+                        
+                        {/* Header */}
+                        <div className="text-center space-y-2">
+                            <h1 className="text-3xl font-bold text-gray-900">Site Traffic Calculator</h1>
+                            <p className="text-gray-500 max-w-2xl mx-auto">
+                                Upload your site access logs (CSV) to automatically calculate peak arrival and departure times. 
+                                The tool automatically handles duplicate removal and daily averaging.
+                            </p>
+                        </div>
+
+                        {/* Upload Section */}
+                        <Card className="p-8 border-dashed border-2 border-gray-300 bg-gray-50 hover:bg-white transition-colors">
+                            <label className="flex flex-col items-center justify-center cursor-pointer w-full h-full">
+                                <div className="bg-blue-100 p-4 rounded-full mb-4">
+                                    <Upload className="w-8 h-8 text-blue-600" />
+                                </div>
+                                <span className="text-lg font-medium text-gray-700">
+                                    {loading ? 'Processing...' : 'Click to Upload CSV File'}
+                                </span>
+                                <span className="text-sm text-gray-500 mt-2">
+                                    Supports .csv files (Standard Export Format)
+                                </span>
+                                <input 
+                                    type="file" 
+                                    accept=".csv"
+                                    className="hidden" 
+                                    onChange={(e) => e.target.files?.[0] && processFile(e.target.files[0])}
+                                />
+                            </label>
+                        </Card>
+
+                        {/* Error Message */}
+                        {error && (
+                            <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg flex items-center gap-3">
+                                <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                                <p>{error}</p>
+                            </div>
+                        )}
+
+                        {/* Success / Processing State */}
+                        {stats && !loading && (
+                            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                                
+                                <div className="flex items-center gap-2 text-green-700 bg-green-50 px-4 py-2 rounded-lg border border-green-200 w-fit">
+                                    <CheckCircle className="w-4 h-4" />
+                                    <span className="text-sm font-medium">Successfully processed: {fileName}</span>
+                                </div>
+
+                                {/* Stats Grid */}
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <StatCard 
+                                        label="Unique People" 
+                                        value={stats.uniquePeople.toLocaleString()} 
+                                        icon={Users}
+                                        color="bg-blue-500"
+                                    />
+                                    <StatCard 
+                                        label="Total Days Found" 
+                                        value={stats.uniqueDays} 
+                                        icon={Calendar}
+                                        color="bg-indigo-500"
+                                    />
+                                    <StatCard 
+                                        label="Total Records Processed" 
+                                        value={stats.totalRecords.toLocaleString()} 
+                                        icon={FileText}
+                                        color="bg-emerald-500"
+                                    />
+                                </div>
+
+                                {/* Chart */}
+                                <Card className="p-6">
+                                    <div className="flex items-center justify-between mb-6">
+                                        <div>
+                                            <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                                                <BarChart3 className="w-5 h-5 text-gray-500" />
+                                                Average Daily Activity
+                                            </h2>
+                                            <p className="text-sm text-gray-500 mt-1">
+                                                Showing the average number of people arriving vs. leaving for each hour of the day.
+                                            </p>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="h-[400px] w-full">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                                                <XAxis 
+                                                    dataKey="hour" 
+                                                    tick={{fill: '#6b7280', fontSize: 12}} 
+                                                    axisLine={false}
+                                                    tickLine={false}
+                                                />
+                                                <YAxis 
+                                                    tick={{fill: '#6b7280', fontSize: 12}} 
+                                                    axisLine={false}
+                                                    tickLine={false}
+                                                    label={{ value: 'Avg. People', angle: -90, position: 'insideLeft', style: { textAnchor: 'middle', fill: '#9ca3af' } }} 
+                                                />
+                                                <Tooltip 
+                                                    contentStyle={{ backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #e5e7eb', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                                                    cursor={{ stroke: '#9ca3af', strokeWidth: 1, strokeDasharray: '4 4' }}
+                                                />
+                                                <Legend wrapperStyle={{ paddingTop: '20px' }} />
+                                                <Line 
+                                                    type="monotone" 
+                                                    dataKey="avgArrivals" 
+                                                    name="Average Arrivals" 
+                                                    stroke="#2563eb" 
+                                                    strokeWidth={3}
+                                                    dot={{ r: 4, fill: '#2563eb', strokeWidth: 0 }}
+                                                    activeDot={{ r: 6 }}
+                                                />
+                                                <Line 
+                                                    type="monotone" 
+                                                    dataKey="avgDepartures" 
+                                                    name="Average Departures" 
+                                                    stroke="#ef4444" 
+                                                    strokeWidth={3}
+                                                    dot={{ r: 4, fill: '#ef4444', strokeWidth: 0 }}
+                                                    activeDot={{ r: 6 }}
+                                                />
+                                            </LineChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                </Card>
+
+                                <div className="text-center text-gray-400 text-sm">
+                                    <p>Data is processed securely in your browser. No files are uploaded to any server.</p>
+                                </div>
+
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<PeakTimesApp />);
+    </script>
+</body>
+</html>

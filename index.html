@@ -11,6 +11,9 @@
     <!-- Dependencies: Prop-types (often needed for Recharts UMD) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prop-types/15.8.1/prop-types.min.js"></script>
     
+    <!-- html2canvas (For downloading reports) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    
     <!-- React & ReactDOM (Pinned Stable Versions) -->
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
@@ -37,6 +40,7 @@
             if (!window.React) missing.push("React");
             if (!window.ReactDOM) missing.push("ReactDOM");
             if (!window.Recharts) missing.push("Recharts");
+            if (!window.html2canvas) missing.push("html2canvas");
             return missing;
         };
 
@@ -61,7 +65,7 @@
             throw new Error("Required libraries are missing: " + missingLibs.join(', '));
         }
 
-        const { useState, useMemo } = React;
+        const { useState, useMemo, useRef } = React;
         const { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } = Recharts;
 
         // --- Icon Components (Inline SVGs) ---
@@ -80,6 +84,9 @@
 
         const Upload = (props) => (
             <IconBase {...props}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></IconBase>
+        );
+        const Download = (props) => (
+            <IconBase {...props}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></IconBase>
         );
         const FileText = (props) => (
             <IconBase {...props}><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></IconBase>
@@ -129,6 +136,7 @@
             const [stats, setStats] = useState(null);
             const [chartData, setChartData] = useState([]);
             const [fileName, setFileName] = useState('');
+            const reportRef = useRef(null);
 
             const processFile = (file) => {
                 setLoading(true);
@@ -214,7 +222,7 @@
                         });
 
                         // ----------------------------------------------------
-                        // NEW LOGIC: Calculate Average Duration (Time on Site)
+                        // Calculate Average Duration (Time on Site)
                         // ----------------------------------------------------
                         let totalDurationMs = 0;
                         let validSessions = 0;
@@ -231,7 +239,6 @@
                             departureCounts[departureHour]++;
 
                             // Average Time Logic
-                            // Calculate difference between first seen and last seen
                             const duration = activity.max.getTime() - activity.min.getTime();
                             totalDurationMs += duration;
                             validSessions++;
@@ -283,6 +290,32 @@
                 reader.readAsText(file);
             };
 
+            const handleDownload = async () => {
+                if (!reportRef.current || !window.html2canvas) return;
+                
+                try {
+                    // Slight delay to ensure DOM is stable
+                    await new Promise(resolve => setTimeout(resolve, 100));
+
+                    const canvas = await window.html2canvas(reportRef.current, {
+                        scale: 2, // Higher quality
+                        backgroundColor: '#f9fafb', // match bg-gray-50
+                        logging: false
+                    });
+                    
+                    const image = canvas.toDataURL("image/png");
+                    const link = document.createElement('a');
+                    link.href = image;
+                    link.download = `Traffic_Report_${fileName || 'data'}.png`;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                } catch (err) {
+                    console.error("Export failed:", err);
+                    alert("Failed to generate image. Please try again.");
+                }
+            };
+
             return (
                 <div className="min-h-screen bg-gray-50 p-6 font-sans">
                     <div className="max-w-6xl mx-auto space-y-6">
@@ -305,8 +338,9 @@
                                 <span className="text-lg font-medium text-gray-700">
                                     {loading ? 'Processing...' : 'Click to Upload CSV File'}
                                 </span>
-                                <span className="text-sm text-gray-500 mt-2">
-                                    Supports .csv files (Standard Export Format)
+                                <span className="text-sm text-gray-500 mt-2 text-center">
+                                    Supports .csv files<br/>
+                                    (Column A: Person ID, Column B: Date/Time)
                                 </span>
                                 <input 
                                     type="file" 
@@ -329,96 +363,109 @@
                         {stats && !loading && (
                             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                                 
-                                <div className="flex items-center gap-2 text-green-700 bg-green-50 px-4 py-2 rounded-lg border border-green-200 w-fit">
-                                    <CheckCircle className="w-4 h-4" />
-                                    <span className="text-sm font-medium">Successfully processed: {fileName}</span>
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                    <div className="flex items-center gap-2 text-green-700 bg-green-50 px-4 py-2 rounded-lg border border-green-200 w-fit">
+                                        <CheckCircle className="w-4 h-4" />
+                                        <span className="text-sm font-medium">Successfully processed: {fileName}</span>
+                                    </div>
+
+                                    <button 
+                                        onClick={handleDownload}
+                                        className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 shadow-sm transition-colors hover:text-blue-600"
+                                    >
+                                        <Download className="w-4 h-4" />
+                                        Download Report
+                                    </button>
                                 </div>
 
-                                {/* Stats Grid */}
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                                    <StatCard 
-                                        label="Unique People" 
-                                        value={stats.uniquePeople.toLocaleString()} 
-                                        icon={Users}
-                                        color="bg-blue-500"
-                                    />
-                                    <StatCard 
-                                        label="Total Days Found" 
-                                        value={stats.uniqueDays} 
-                                        icon={Calendar}
-                                        color="bg-indigo-500"
-                                    />
-                                    <StatCard 
-                                        label="Avg. Time on Site" 
-                                        value={stats.avgTimeOnSite} 
-                                        icon={Clock}
-                                        color="bg-orange-500"
-                                    />
-                                    <StatCard 
-                                        label="Total Records" 
-                                        value={stats.totalRecords.toLocaleString()} 
-                                        icon={FileText}
-                                        color="bg-emerald-500"
-                                    />
-                                </div>
+                                {/* Area to Capture */}
+                                <div ref={reportRef} className="space-y-6 bg-gray-50 pb-2">
+                                    {/* Stats Grid */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                        <StatCard 
+                                            label="Unique People" 
+                                            value={stats.uniquePeople.toLocaleString()} 
+                                            icon={Users}
+                                            color="bg-blue-500"
+                                        />
+                                        <StatCard 
+                                            label="Total Days Found" 
+                                            value={stats.uniqueDays} 
+                                            icon={Calendar}
+                                            color="bg-indigo-500"
+                                        />
+                                        <StatCard 
+                                            label="Avg. Time on Site" 
+                                            value={stats.avgTimeOnSite} 
+                                            icon={Clock}
+                                            color="bg-orange-500"
+                                        />
+                                        <StatCard 
+                                            label="Total Records" 
+                                            value={stats.totalRecords.toLocaleString()} 
+                                            icon={FileText}
+                                            color="bg-emerald-500"
+                                        />
+                                    </div>
 
-                                {/* Chart */}
-                                <Card className="p-6">
-                                    <div className="flex items-center justify-between mb-6">
-                                        <div>
-                                            <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-                                                <BarChart3 className="w-5 h-5 text-gray-500" />
-                                                Average Daily Activity
-                                            </h2>
-                                            <p className="text-sm text-gray-500 mt-1">
-                                                Showing the average number of people arriving vs. leaving for each hour of the day.
-                                            </p>
+                                    {/* Chart */}
+                                    <Card className="p-6">
+                                        <div className="flex items-center justify-between mb-6">
+                                            <div>
+                                                <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                                                    <BarChart3 className="w-5 h-5 text-gray-500" />
+                                                    Average Daily Activity
+                                                </h2>
+                                                <p className="text-sm text-gray-500 mt-1">
+                                                    Showing the average number of people arriving vs. leaving for each hour of the day.
+                                                </p>
+                                            </div>
                                         </div>
-                                    </div>
-                                    
-                                    <div className="h-[400px] w-full">
-                                        <ResponsiveContainer width="100%" height="100%">
-                                            <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                                                <XAxis 
-                                                    dataKey="hour" 
-                                                    tick={{fill: '#6b7280', fontSize: 12}} 
-                                                    axisLine={false}
-                                                    tickLine={false}
-                                                />
-                                                <YAxis 
-                                                    tick={{fill: '#6b7280', fontSize: 12}} 
-                                                    axisLine={false}
-                                                    tickLine={false}
-                                                    label={{ value: 'Avg. People', angle: -90, position: 'insideLeft', style: { textAnchor: 'middle', fill: '#9ca3af' } }} 
-                                                />
-                                                <Tooltip 
-                                                    contentStyle={{ backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #e5e7eb', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                                                    cursor={{ stroke: '#9ca3af', strokeWidth: 1, strokeDasharray: '4 4' }}
-                                                />
-                                                <Legend wrapperStyle={{ paddingTop: '20px' }} />
-                                                <Line 
-                                                    type="monotone" 
-                                                    dataKey="avgArrivals" 
-                                                    name="Average Arrivals" 
-                                                    stroke="#2563eb" 
-                                                    strokeWidth={3}
-                                                    dot={{ r: 4, fill: '#2563eb', strokeWidth: 0 }}
-                                                    activeDot={{ r: 6 }}
-                                                />
-                                                <Line 
-                                                    type="monotone" 
-                                                    dataKey="avgDepartures" 
-                                                    name="Average Departures" 
-                                                    stroke="#ef4444" 
-                                                    strokeWidth={3}
-                                                    dot={{ r: 4, fill: '#ef4444', strokeWidth: 0 }}
-                                                    activeDot={{ r: 6 }}
-                                                />
-                                            </LineChart>
-                                        </ResponsiveContainer>
-                                    </div>
-                                </Card>
+                                        
+                                        <div className="h-[400px] w-full">
+                                            <ResponsiveContainer width="100%" height="100%">
+                                                <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                                                    <XAxis 
+                                                        dataKey="hour" 
+                                                        tick={{fill: '#6b7280', fontSize: 12}} 
+                                                        axisLine={false}
+                                                        tickLine={false}
+                                                    />
+                                                    <YAxis 
+                                                        tick={{fill: '#6b7280', fontSize: 12}} 
+                                                        axisLine={false}
+                                                        tickLine={false}
+                                                        label={{ value: 'Avg. People', angle: -90, position: 'insideLeft', style: { textAnchor: 'middle', fill: '#9ca3af' } }} 
+                                                    />
+                                                    <Tooltip 
+                                                        contentStyle={{ backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #e5e7eb', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                                                        cursor={{ stroke: '#9ca3af', strokeWidth: 1, strokeDasharray: '4 4' }}
+                                                    />
+                                                    <Legend wrapperStyle={{ paddingTop: '20px' }} />
+                                                    <Line 
+                                                        type="monotone" 
+                                                        dataKey="avgArrivals" 
+                                                        name="Average Arrivals" 
+                                                        stroke="#2563eb" 
+                                                        strokeWidth={3}
+                                                        dot={{ r: 4, fill: '#2563eb', strokeWidth: 0 }}
+                                                        activeDot={{ r: 6 }}
+                                                    />
+                                                    <Line 
+                                                        type="monotone" 
+                                                        dataKey="avgDepartures" 
+                                                        name="Average Departures" 
+                                                        stroke="#ef4444" 
+                                                        strokeWidth={3}
+                                                        dot={{ r: 4, fill: '#ef4444', strokeWidth: 0 }}
+                                                        activeDot={{ r: 6 }}
+                                                    />
+                                                </LineChart>
+                                            </ResponsiveContainer>
+                                        </div>
+                                    </Card>
+                                </div>
 
                                 <div className="text-center text-gray-400 text-sm">
                                     <p>Data is processed securely in your browser. No files are uploaded to any server.</p>
